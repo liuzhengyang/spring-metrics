@@ -544,6 +544,7 @@ table.CodeRay td.code>pre{padding:0}
 <li><a href="#prometheus">Prometheus</a>
 <ul class="sectlevel2">
 <li><a href="#quickstart-for-prometheus-based-monitoring">Quickstart for Prometheus-based monitoring</a></li>
+<li><a href="#pulling-metrics-with-scraping">Pulling metrics with scraping</a></li>
 </ul>
 </li>
 <li><a href="#dropwizard">Dropwizard</a>
@@ -1303,7 +1304,7 @@ a <code>Timer</code>, or both. Below is an example of measuring both long task a
 <div class="listingblock">
 <div class="content">
 <pre class="CodeRay highlight"><code data-lang="groovy">compile <span class="string"><span class="delimiter">'</span><span class="content">org.springframework.metrics:spring-metrics:latest.release</span><span class="delimiter">'</span></span>
-compile <span class="string"><span class="delimiter">'</span><span class="content">io.prometheus:simpleclient:latest.release</span><span class="delimiter">'</span></span></code></pre>
+compile <span class="string"><span class="delimiter">'</span><span class="content">io.prometheus:simpleclient_common:latest.release</span><span class="delimiter">'</span></span></code></pre>
 </div>
 </div>
 <div class="paragraph">
@@ -1314,26 +1315,42 @@ compile <span class="string"><span class="delimiter">'</span><span class="conten
 <pre class="CodeRay highlight"><code data-lang="java"><span class="annotation">@SpringBootApplication</span>
 <span class="annotation">@EnablePrometheusMetrics</span>
 <span class="directive">public</span> <span class="type">class</span> <span class="class">MyApp</span> {
-}
-
-Then inject <span class="error">`</span>MeterRegistry<span class="error">`</span> wherever you need to create a timer, gauge, counter, or summary. Where supported,
-you may also use the <span class="error">`</span><span class="annotation">@Timed</span><span class="error">`</span> annotation, which eliminates the need to inject a <span class="error">`</span>MeterRegistry<span class="error">`</span> in certain
-cases.
-
-=== Pulling metrics with scraping
-
-<span class="error">`</span><span class="annotation">@EnablePrometheusMetrics</span><span class="error">`</span> also applies <span class="error">`</span><span class="annotation">@EnablePrometheusScraping</span><span class="error">`</span> to your <span class="predefined-type">Spring</span> Boot application which
-enables a <span class="predefined-type">Spring</span> Boot Actuator endpoint at <span class="error">`</span>/prometheus<span class="error">`</span> that presents a Prometheus
-scrape with the appropriate format.
-
-Here is an example <span class="error">`</span>scrape_config<span class="error">`</span> to add to prometheus.yml:
-
-<span class="error">`</span><span class="error">`</span><span class="error">`</span>yml
-scrape_configs:
-  - job_name: <span class="string"><span class="delimiter">'</span><span class="content">spring</span><span class="delimiter">'</span></span>
-    metrics_path: <span class="string"><span class="delimiter">'</span><span class="content">/prometheus</span><span class="delimiter">'</span></span>
-    static_configs:
-      - targets: [<span class="string"><span class="delimiter">'</span><span class="content">HOST:PORT</span><span class="delimiter">'</span></span>]</code></pre>
+}</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Then inject <code>MeterRegistry</code> wherever you need to create a timer, gauge, counter, or summary. Where supported,
+you may also use the <code>@Timed</code> annotation, which eliminates the need to inject a <code>MeterRegistry</code> in certain
+cases.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="pulling-metrics-with-scraping">Pulling metrics with scraping</h3>
+<div class="paragraph">
+<p><code>@EnablePrometheusMetrics</code> also applies <code>@EnablePrometheusScraping</code> to your Spring Boot application which
+enables a Spring Boot Actuator endpoint at <code>/prometheus</code> that presents a Prometheus
+scrape with the appropriate format.</p>
+</div>
+<div class="paragraph">
+<p>A router function generator is also provided to add a scraping endpoint to a Webflux functional application:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="CodeRay highlight"><code data-lang="java">PrometheusMeterRegistry meterRegistry = <span class="keyword">new</span> PrometheusMeterRegistry();
+RouterFunction&lt;ServerResponse&gt; route = route(GET(<span class="string"><span class="delimiter">&quot;</span><span class="content">/prometheus</span><span class="delimiter">&quot;</span></span>),
+    PrometheusFunctions.scrape(meterRegistry));</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Here is an example <code>scrape_config</code> to add to prometheus.yml:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="CodeRay highlight"><code data-lang="yml"><span class="key">scrape_configs</span>:
+  - <span class="string"><span class="content">job_name: 'spring'</span></span>
+    <span class="key">metrics_path</span>: <span class="string"><span class="content">'/prometheus'</span></span>
+    <span class="key">static_configs</span>:
+      - <span class="string"><span class="content">targets: ['HOST:PORT']</span></span></code></pre>
 </div>
 </div>
 </div>
