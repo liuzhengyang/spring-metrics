@@ -527,6 +527,8 @@ table.CodeRay td.code>pre{padding:0}
 <li><a href="#long-task-timers">Long Task Timers</a></li>
 <li><a href="#gauges">Gauges</a></li>
 <li><a href="#distribution-summary">Distribution Summary</a></li>
+<li><a href="#quantile-statistics">Quantile Statistics</a></li>
+<li><a href="#histogram-statistics">Histogram Statistics</a></li>
 <li><a href="#cache-monitoring">Cache Monitoring</a></li>
 <li><a href="#data-source-monitoring">Data Source Monitoring</a></li>
 <li><a href="#executor-and-executorservice-monitoring">Executor and ExecutorService Monitoring</a></li>
@@ -545,6 +547,11 @@ table.CodeRay td.code>pre{padding:0}
 <ul class="sectlevel2">
 <li><a href="#quickstart-for-prometheus-based-monitoring">Quickstart for Prometheus-based monitoring</a></li>
 <li><a href="#pulling-metrics-with-scraping">Pulling metrics with scraping</a></li>
+</ul>
+</li>
+<li><a href="#netflix-atlas">Netflix Atlas</a>
+<ul class="sectlevel2">
+<li><a href="#quickstart-for-atlas-based-monitoring">Quickstart for Atlas-based monitoring</a></li>
 </ul>
 </li>
 <li><a href="#dropwizard">Dropwizard</a>
@@ -1003,6 +1010,165 @@ sizes of requests hitting a server.</p>
 </div>
 </div>
 <div class="sect2">
+<h3 id="quantile-statistics">Quantile Statistics</h3>
+<div class="paragraph">
+<p>Timers and distribution summaries can be enriched with <a href="https://en.wikipedia.org/wiki/Quantile">quantiles</a> computed in your app prior to shipping
+to a monitoring backend.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="CodeRay highlight"><code data-lang="java"><span class="predefined-type">Timer</span> timer = meterRegistry.timerBuilder(<span class="string"><span class="delimiter">&quot;</span><span class="content">my_timer</span><span class="delimiter">&quot;</span></span>)
+                .quantiles(WindowSketchQuantiles.quantiles(<span class="float">0.5</span>, <span class="float">0.95</span>).create())
+                .create();</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>For distribution summaries, you can use <code>summaryBuilder(name)</code> which mirrors this construction.</p>
+</div>
+<div class="paragraph">
+<p>This would result in additional gauges with tags <code>quantile=0.5</code> and <code>quantile=0.95</code>. The 0.95 quantile is the
+the value below which 95% of observations in a group of observations fall. 0.5 represents the media of our
+observations thus far.</p>
+</div>
+<div class="paragraph">
+<p>Four quantile algorithms are provided out of the box with different tradeoffs:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><code>WindowSketchQuantiles</code> - The importance of an observation is decayed as it ages. This is the most computationally
+costly algorithm.</p>
+</li>
+</ul>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="CodeRay highlight"><code data-lang="java">WindowSketchQuantiles.quantiles(<span class="float">0.5</span>, <span class="float">0.95</span>)
+    .error(<span class="float">0.01</span>) <span class="comment">// OPTIONAL, defaults to 0.05</span>
+    .create()</code></pre>
+</div>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><code>Frugal2UQuantiles</code> - Successive approximation algorithm that converges towards the true quantile with enough
+observations. This is by least costly algorithm, but exhibits a higher error ratio in early observations.</p>
+</li>
+</ul>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="CodeRay highlight"><code data-lang="java">Frugal2UQuantiles
+    <span class="comment">// the closer the initial estimate (100) is to the true quantile, the faster it converges</span>
+    .quantile(<span class="float">0.95</span>, <span class="integer">100</span>)
+    .quantile(<span class="float">0.5</span>, <span class="integer">150</span>)
+    .create()</code></pre>
+</div>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><code>CKMSQuantiles</code> - Allows you to tradeoff computational complexity for error ratio on a per quantile basis. Often,
+it is desirable for higher quantiles to have a lower error ratio (e.g. 0.99 at 1% error vs. 0.5 at 5% error). Still
+more computationally expensive than Frugal.</p>
+</li>
+</ul>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="CodeRay highlight"><code data-lang="java">CKMSQuantiles
+    .quantile(<span class="float">0.95</span>, <span class="float">0.01</span>)
+    .quantile(<span class="float">0.5</span>, <span class="float">0.05</span>)
+    .create()</code></pre>
+</div>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><code>GKQuantiles</code> - Allows you to tradeoff computational complexity for error ratio across all quantiles. This is
+used inside of <code>WindowSketchQuantiles</code>.</p>
+</li>
+</ul>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="CodeRay highlight"><code data-lang="java">GKQuantiles.quantiles(<span class="float">0.5</span>, <span class="float">0.95</span>)
+    .error(<span class="float">0.01</span>) <span class="comment">// OPTIONAL, defaults to 0.05</span>
+    .create()</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Here is a demonstration of all four algorithms operating simultaneously on the same distribution:</p>
+</div>
+<div class="imageblock">
+<div class="content">
+<img src="images/quantile-algorithms.png" alt="quantile algorithms">
+</div>
+<div class="title">Figure 4. Quantile Algorithms at Work</div>
+</div>
+<div class="paragraph">
+<p>It is also possible to indicate that you want to compute quantiles in an <code>@Timed</code> annotation:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="CodeRay highlight"><code data-lang="java"><span class="annotation">@RestController</span>
+<span class="directive">public</span> <span class="type">class</span> <span class="class">MyController</span> {
+    <span class="annotation">@Timed</span>(value = <span class="string"><span class="delimiter">&quot;</span><span class="content">list_people</span><span class="delimiter">&quot;</span></span>, quantiles = {<span class="float">0.5</span>, <span class="float">0.95</span>})
+    <span class="annotation">@GetMapping</span>(<span class="string"><span class="delimiter">&quot;</span><span class="content">/api/people</span><span class="delimiter">&quot;</span></span>)
+    <span class="directive">public</span> <span class="predefined-type">List</span>&lt;Person&gt; listPeople() { ... }</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="histogram-statistics">Histogram Statistics</h3>
+<div class="paragraph">
+<p>Timers and distribution summaries can be enriched with histogram statistics that yield a counter
+time series for each of a set of buckets.</p>
+</div>
+<div class="paragraph">
+<p>Histograms can be used to compute quantiles or other summary statistics in some monitoring backends
+(e.g. <a href="https://prometheus.io/docs/querying/functions/#histogram_quantile">Prometheus</a>). Because histograms
+buckets are exposed as individual counters to the monitoring backend, it is possible to aggregate
+observations across a distributed system and compute summary statistics like quantiles for an entire
+cluster.</p>
+</div>
+<div class="paragraph">
+<p>Naturally, the error rate of the computed summary statistic will be higher because of the lossy nature of bucketing data.</p>
+</div>
+<div class="paragraph">
+<p><code>spring-metrics</code> supports both cumulative and non-cumulative (normal) histograms and provides a set of
+generators for each.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="CodeRay highlight"><code data-lang="java">DistributionSummary hist = meterRegistry.summaryBuilder(<span class="string"><span class="delimiter">&quot;</span><span class="content">hist</span><span class="delimiter">&quot;</span></span>)
+        .histogram(CumulativeHistogram.buckets(linear(<span class="integer">0</span>, <span class="integer">10</span>, <span class="integer">20</span>)))
+        .create();</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>For timers, you can use <code>timerBuilder(name)</code> which mirrors this construction.</p>
+</div>
+<div class="paragraph">
+<p>This sample constructs a cumulative histogram consisting of 20 buckets, one every 10 units
+beginning at 0.</p>
+</div>
+<div class="paragraph">
+<p>To construct a normal histogram, use the generators on <code>NormalHistogram</code>.</p>
+</div>
+<div class="paragraph">
+<p>For timers, be sure to specify the <code>TimeUnit</code> that your buckets represent. The bucket tag value
+on the time series will be normalized to the expected time base unit of the monitoring backend
+(e.g. seconds on Prometheus, nanoseconds on Atlas). In this way, you can keep your histograms
+backend agnostic.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="CodeRay highlight"><code data-lang="java">CumulativeHistogram.buckets(linear(<span class="integer">0</span>, <span class="integer">10</span>, <span class="integer">20</span>), <span class="predefined-type">TimeUnit</span>.MILLISECONDS);</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
 <h3 id="cache-monitoring">Cache Monitoring</h3>
 <div class="paragraph">
 <p>Guava caches can be instrumented with the registry, but it is important that you call <code>recordStats()</code> on
@@ -1015,9 +1181,9 @@ the <code>CacheBuilder</code>, as it is not possible to turn this on after the <
     LoadingCache&lt;<span class="predefined-type">String</span>, Person&gt; personBySsn;
 
     <span class="directive">public</span> PersonRepository(MeterRegistry registry) {
-        personBySsn = registry.monitor(<span class="string"><span class="delimiter">&quot;</span><span class="content">people_cache</span><span class="delimiter">&quot;</span></span>,
-            <span class="string"><span class="delimiter">&quot;</span><span class="content">lookup_key</span><span class="delimiter">&quot;</span></span>, <span class="string"><span class="delimiter">&quot;</span><span class="content">ssn</span><span class="delimiter">&quot;</span></span>, <span class="comment">// &lt;- any number of tags</span>
-            CacheBuilder.newBuilder().recordStats().build()
+        personBySsn = Meters.monitor(registry, CacheBuilder.newBuilder().recordStats().build(),
+            <span class="string"><span class="delimiter">&quot;</span><span class="content">people_cache</span><span class="delimiter">&quot;</span></span>, <span class="comment">// base metric name</span>
+            <span class="string"><span class="delimiter">&quot;</span><span class="content">lookup_key</span><span class="delimiter">&quot;</span></span>, <span class="string"><span class="delimiter">&quot;</span><span class="content">ssn</span><span class="delimiter">&quot;</span></span> <span class="comment">// &lt;- any number of tag key/value pairs</span>
         );
     }
 }</code></pre>
@@ -1048,13 +1214,19 @@ are configured.</p>
     <span class="directive">private</span> <span class="predefined-type">DataSource</span> dataSource;
 
     <span class="annotation">@Autowired</span>
+    <span class="directive">private</span> <span class="predefined-type">Collection</span>&lt;DataSourcePoolMetadataProvider&gt; metadataProviders;
+
+    <span class="annotation">@Autowired</span>
     <span class="directive">private</span> Environment env;
 
     <span class="annotation">@PostConstruct</span>
     <span class="directive">private</span> <span class="type">void</span> instrumentDataSource() {
-        registry.monitor(<span class="string"><span class="delimiter">&quot;</span><span class="content">data_source</span><span class="delimiter">&quot;</span></span>,
+        Meters.monitor(
+            registry,
+            dataSource,
+            metadataProviders,
+            <span class="string"><span class="delimiter">&quot;</span><span class="content">data_source</span><span class="delimiter">&quot;</span></span>, <span class="comment">// base metric name</span>
             <span class="string"><span class="delimiter">&quot;</span><span class="content">stack</span><span class="delimiter">&quot;</span></span>, env.acceptsProfiles(<span class="string"><span class="delimiter">&quot;</span><span class="content">prod</span><span class="delimiter">&quot;</span></span>) ? <span class="string"><span class="delimiter">&quot;</span><span class="content">prod</span><span class="delimiter">&quot;</span></span> : <span class="string"><span class="delimiter">&quot;</span><span class="content">test</span><span class="delimiter">&quot;</span></span>, <span class="comment">// &lt;- any number of tags</span>
-            dataSource
         );
     }
 }</code></pre>
@@ -1073,7 +1245,10 @@ the provided name ("data_source" in this example).</p>
 <div class="sect2">
 <h3 id="executor-and-executorservice-monitoring">Executor and ExecutorService Monitoring</h3>
 <div class="paragraph">
-<p><code>Executor</code> and <code>ExecutorService</code> instances can be instrumented with the registry.</p>
+<p><code>Executor</code> and <code>ExecutorService</code> instances can be instrumented with the registry. This includes any
+specializations of these types created by <code>java.util.concurrent.Executors</code>. Additionally, you can
+directly monitor <code>ThreadPoolTaskExecutor</code> and <code>ThreadPoolTaskScheduler</code> in a wholly similar way, but
+they must be initialized prior to attempting to instrument them.</p>
 </div>
 <div class="listingblock">
 <div class="content">
@@ -1081,16 +1256,20 @@ the provided name ("data_source" in this example).</p>
 <span class="type">class</span> <span class="class">MyConfiguration</span> {
     <span class="annotation">@Bean</span>(<span class="string"><span class="delimiter">&quot;</span><span class="content">worker_pool</span><span class="delimiter">&quot;</span></span>)
     <span class="predefined-type">ExecutorService</span> workerPool(MeterRegistry registry) {
-        <span class="keyword">return</span> registry.monitor(<span class="predefined-type">Executors</span>.newFixedThreadPool(<span class="integer">8</span>));
+        <span class="keyword">return</span> Meters.monitor(registry,
+            <span class="predefined-type">Executors</span>.newFixedThreadPool(<span class="integer">8</span>),
+            <span class="string"><span class="delimiter">&quot;</span><span class="content">worker_pool</span><span class="delimiter">&quot;</span></span>,
+            <span class="string"><span class="delimiter">&quot;</span><span class="content">threads</span><span class="delimiter">&quot;</span></span>, <span class="string"><span class="delimiter">&quot;</span><span class="content">8</span><span class="delimiter">&quot;</span></span> <span class="comment">// any number of tag key value pairs</span>
+        );
     }
 }</code></pre>
 </div>
 </div>
 <div class="paragraph">
-<p><code>ExecutorService</code> instrumentation results in a gauge that tracks
-the number of queued tasks that have not been started yet plus a timer
-that records the execution time of tasks (plus a count of such tasks, since
-`Timer`s always track both count and totalTime statistics).</p>
+<p><code>ExecutorService</code> instrumentation results in a composite counter that tracks
+ the number of submitted, active, and completed tasks. Additionally, a timer records the
+ execution time of tasks (plus a count of such tasks, since `Timer`s always track both count
+ and totalTime statistics).</p>
 </div>
 <div class="paragraph">
 <p><code>Executor</code> instrumentation just records the execution time.</p>
@@ -1121,8 +1300,9 @@ bind metrics to a single <code>MeterRegistry</code>:</p>
 <div class="content">
 <pre class="CodeRay highlight"><code data-lang="java"><span class="annotation">@Bean</span>
 MeterRegistry prometheusRegistry() {
-    <span class="keyword">return</span> <span class="keyword">new</span> PrometheusMeterRegistry()
-        .bind(<span class="keyword">new</span> JvmMemoryMetrics());
+    MeterRegistry registry = <span class="keyword">new</span> PrometheusMeterRegistry();
+    <span class="keyword">new</span> JvmMemoryMetrics().bindTo(registry);
+    <span class="keyword">return</span> registry;
 }</code></pre>
 </div>
 </div>
@@ -1241,12 +1421,17 @@ controllers or request methods via the <code>extraTags</code> attribute on <code
 <div class="listingblock">
 <div class="content">
 <pre class="CodeRay highlight"><code data-lang="java">RouterFunctionMetrics metrics = <span class="keyword">new</span> RouterFunctionMetrics(registry);
-metrics.setDefaultTagName(<span class="string"><span class="delimiter">&quot;</span><span class="content">my_metric_name</span><span class="delimiter">&quot;</span></span>); <span class="comment">// OPTIONAL, default is http_server_requests</span>
+
+<span class="comment">// OPTIONAL: the default is to record tags on method and status</span>
+metrics.defaultTags((req, resp) -&gt; { <span class="comment">/* custom tags here */</span> });
 
 RouterFunction&lt;ServerResponse&gt; routes = RouterFunctions
     .route(GET(<span class="string"><span class="delimiter">&quot;</span><span class="content">/person/{id}</span><span class="delimiter">&quot;</span></span>).and(accept(APPLICATION_JSON)),
         request -&gt; ServerResponse.ok().build())
-    .filter(metrics.timer());</code></pre>
+    .filter(metrics.timer(
+        <span class="string"><span class="delimiter">&quot;</span><span class="content">http_server_requests</span><span class="delimiter">&quot;</span></span>, <span class="comment">// metric name</span>
+        <span class="string"><span class="delimiter">&quot;</span><span class="content">instance</span><span class="delimiter">&quot;</span></span>, MY_INSTANCE_ID <span class="comment">// optional tags</span>
+    ));</code></pre>
 </div>
 </div>
 <div class="paragraph">
@@ -1319,9 +1504,7 @@ compile <span class="string"><span class="delimiter">'</span><span class="conten
 </div>
 </div>
 <div class="paragraph">
-<p>Then inject <code>MeterRegistry</code> wherever you need to create a timer, gauge, counter, or summary. Where supported,
-you may also use the <code>@Timed</code> annotation, which eliminates the need to inject a <code>MeterRegistry</code> in certain
-cases.</p>
+<p>Then inject <code>MeterRegistry</code> wherever you need to create a timer, gauge, counter, or summary.</p>
 </div>
 </div>
 <div class="sect2">
@@ -1352,6 +1535,59 @@ RouterFunction&lt;ServerResponse&gt; route = route(GET(<span class="string"><spa
     <span class="key">static_configs</span>:
       - <span class="string"><span class="content">targets: ['HOST:PORT']</span></span></code></pre>
 </div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="netflix-atlas">Netflix Atlas</h2>
+<div class="sectionbody">
+<div class="sect2">
+<h3 id="quickstart-for-atlas-based-monitoring">Quickstart for Atlas-based monitoring</h3>
+<div class="paragraph">
+<p>You will need the following dependencies:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="CodeRay highlight"><code data-lang="groovy">compile <span class="string"><span class="delimiter">'</span><span class="content">org.springframework.metrics:spring-metrics:latest.release</span><span class="delimiter">'</span></span>
+compile <span class="string"><span class="delimiter">'</span><span class="content">com.netflix.spectator:spectator-reg-atlas:latest.release</span><span class="delimiter">'</span></span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Add <code>@EnableAtlasMetrics</code> to your configuration.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="CodeRay highlight"><code data-lang="java"><span class="annotation">@SpringBootApplication</span>
+<span class="annotation">@EnableAtlasMetrics</span>
+<span class="directive">public</span> <span class="type">class</span> <span class="class">MyApp</span> {
+}</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Spectator&#8217;s Atlas registry publishes metrics to an Atlas server periodically. Below is a list of
+the most common configuration properties you will want to change and their default values
+(from any property source, e.g. application.yml):</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="CodeRay highlight"><code data-lang="yml"><span class="comment"># The location of your Atlas server</span>
+<span class="key">atlas.uri</span>: <span class="string"><span class="content">http://localhost:7101/api/v1/publish</span></span>
+
+<span class="comment"># You will probably want disable Atlas publishing in a local development profile.</span>
+<span class="key">atlas.enabled</span>: <span class="string"><span class="content">true</span></span>
+
+<span class="comment"># The interval at which metrics are sent to Atlas. See Duration.parse for the expected format.</span>
+<span class="comment"># The default is 1 minute.</span>
+<span class="key">atlas.step</span>: <span class="string"><span class="content">PT1M</span></span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>For a full list of configuration properties that can influence Atlas publishing, see
+<code>com.netflix.spectator.atlas.AtlasConfig</code>.</p>
+</div>
+<div class="paragraph">
+<p>Then inject <code>MeterRegistry</code> wherever you need to create a timer, gauge, counter, or summary.</p>
 </div>
 </div>
 </div>
