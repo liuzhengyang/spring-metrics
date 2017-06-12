@@ -72,16 +72,26 @@ public class PrometheusMeterRegistry extends AbstractMeterRegistry {
         Collection<Tag> tagsToMatch = new ArrayList<>();
         tags.forEach(tagsToMatch::add);
 
-        //noinspection unchecked
         return meterMap.keySet().stream()
                 .filter(id -> id.getName().equals(name))
                 .filter(id -> id.getTags().containsAll(tagsToMatch))
                 .findAny()
                 .map(meterMap::get)
-                .map(m -> (M) m);
+                .filter(mClass::isInstance)
+                .map(mClass::cast);
     }
 
+    public Optional<Meter> findMeter(Meter.Type type, String name, Iterable<Tag> tags) {
+        Collection<Tag> tagsToMatch = new ArrayList<>();
+        tags.forEach(tagsToMatch::add);
 
+        return meterMap.keySet().stream()
+                .filter(id -> id.getName().equals(name))
+                .filter(id -> id.getTags().containsAll(tagsToMatch))
+                .findAny()
+                .map(meterMap::get)
+                .filter(m -> m.getType().equals(type));
+    }
 
     @Override
     public Counter counter(String name, Iterable<Tag> tags) {

@@ -26,19 +26,20 @@ import java.util.concurrent.atomic.LongAdder;
 
 import static org.springframework.metrics.instrument.simple.SimpleUtils.typeTag;
 
-public class SimpleDistributionSummary implements DistributionSummary {
-    private final MeterId id;
+public class SimpleDistributionSummary extends AbstractSimpleMeter implements DistributionSummary {
     private LongAdder count = new LongAdder();
     private DoubleAdder amount = new DoubleAdder();
 
-    public SimpleDistributionSummary(MeterId id) {
-        this.id = id;
+    SimpleDistributionSummary(MeterId id) {
+        super(id);
     }
 
     @Override
     public void record(double amount) {
-        count.increment();
-        this.amount.add(amount);
+        if(amount >= 0) {
+            count.increment();
+            this.amount.add(amount);
+        }
     }
 
     @Override
@@ -49,21 +50,6 @@ public class SimpleDistributionSummary implements DistributionSummary {
     @Override
     public double totalAmount() {
         return amount.doubleValue();
-    }
-
-    @Override
-    public String getName() {
-        return id.getName();
-    }
-
-    @Override
-    public Iterable<Tag> getTags() {
-        return id.getTags();
-    }
-
-    @Override
-    public Type getType() {
-        return Type.DistributionSummary;
     }
 
     @Override

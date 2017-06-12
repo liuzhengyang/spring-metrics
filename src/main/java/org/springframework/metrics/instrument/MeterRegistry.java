@@ -43,6 +43,12 @@ public interface MeterRegistry {
 
     <M extends Meter> Optional<M> findMeter(Class<M> mClass, String name, Iterable<Tag> tags);
 
+    default Optional<Meter> findMeter(Meter.Type type, String name, String... tags) {
+        return findMeter(type, name, zip(tags));
+    }
+
+    Optional<Meter> findMeter(Meter.Type type, String name, Iterable<Tag> tags);
+
     Clock getClock();
 
     /**
@@ -63,13 +69,13 @@ public interface MeterRegistry {
      * @param name The name of the distribution summary (which is the only requirement for a new distribution summary).
      * @return The builder.
      */
-    DistributionSummary.Builder distributionSummaryBuilder(String name);
+    DistributionSummary.Builder summaryBuilder(String name);
 
     /**
      * Measures the sample distribution of events.
      */
     default DistributionSummary summary(String name, Iterable<Tag> tags) {
-        return distributionSummaryBuilder(name).tags(tags).create();
+        return summaryBuilder(name).tags(tags).create();
     }
 
     /**

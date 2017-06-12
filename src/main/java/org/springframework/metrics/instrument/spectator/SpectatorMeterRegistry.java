@@ -99,7 +99,6 @@ public class SpectatorMeterRegistry extends AbstractMeterRegistry {
         Collection<Tag> tagsToMatch = new ArrayList<>();
         tags.forEach(tagsToMatch::add);
 
-        //noinspection unchecked
         return meterMap.entrySet().stream()
                 .filter(e -> mClass.isInstance(e.getValue()))
                 .filter(e -> e.getKey().id().name().equals(name))
@@ -107,7 +106,24 @@ public class SpectatorMeterRegistry extends AbstractMeterRegistry {
                         .map(t -> new ImmutableTag(t.key(), t.value()))
                         .collect(Collectors.toList())
                         .containsAll(tagsToMatch))
-                .map(e -> (M) e.getValue())
+                .map(Map.Entry::getValue)
+                .findAny()
+                .filter(mClass::isInstance)
+                .map(mClass::cast);
+    }
+
+    public Optional<Meter> findMeter(Meter.Type type, String name, Iterable<Tag> tags) {
+        Collection<Tag> tagsToMatch = new ArrayList<>();
+        tags.forEach(tagsToMatch::add);
+
+        return meterMap.entrySet().stream()
+                .filter(e -> e.getValue().getType().equals(type))
+                .filter(e -> e.getKey().id().name().equals(name))
+                .filter(e -> stream(e.getKey().id().tags().spliterator(), false)
+                        .map(t -> new ImmutableTag(t.key(), t.value()))
+                        .collect(Collectors.toList())
+                        .containsAll(tagsToMatch))
+                .map(Map.Entry::getValue)
                 .findAny();
     }
 
